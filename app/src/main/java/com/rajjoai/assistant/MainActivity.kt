@@ -4,14 +4,16 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import java.util.Locale
 
 class MainActivity : Activity() {
 
-    private var speechRecognizer: SpeechRecognizer? = null
+    private var recognizer: SpeechRecognizer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -21,7 +23,7 @@ class MainActivity : Activity() {
 
             requestPermissions(
                 arrayOf(Manifest.permission.RECORD_AUDIO),
-                101
+                10
             )
         } else {
             startVoice()
@@ -29,145 +31,143 @@ class MainActivity : Activity() {
     }
 
     private fun startVoice() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            return
-        }
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
 
-        speechRecognizer =
-            SpeechRecognizer.createSpeechRecognizer(this)
-
-        val speechIntent =
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-
-        speechIntent.putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-        )
-
-        speechIntent.putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE,
-            "bn-BD"
-        )
-
-        speechRecognizer?.setRecognitionListener(
+        recognizer?.setRecognitionListener(
             object : android.speech.RecognitionListener {
 
                 override fun onResults(results: Bundle?) {
-                    val words =
-                        results?.getStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION
-                        )
+                    val words = results.getStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION
+                    )
 
                     val command = words?.firstOrNull()
 
-                    if (!command.isNullOrEmpty()) {
-                        runCommand(command)
+                    if (!command.isNullOrBlank()) {
+                        executeCommand(command)
                     }
 
-                    listen(speechIntent)
+                    startListening()
                 }
 
                 override fun onError(error: Int) {
-                    listen(speechIntent)
+                    startListening()
                 }
 
-                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onReadyForSpeech(p: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onRmsChanged(v: Float) {}
+                override fun onBufferReceived(b: ByteArray?) {}
                 override fun onEndOfSpeech() {}
-                override fun onPartialResults(
-                    partialResults: Bundle?
-                ) {}
-                override fun onEvent(
-                    eventType: Int,
-                    params: Bundle?
-                ) {}
+                override fun onPartialResults(b: Bundle?) {}
+                override fun onEvent(i: Int, b: Bundle?) {}
             }
         )
 
-        listen(speechIntent)
+        startListening()
     }
 
-    private fun listen(intent: Intent) {
+    private fun startListening() {
         try {
-            speechRecognizer?.startListening(intent)
+            val intent = Intent(
+                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+            ).apply {
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_LANGUAGE,
+                    "bn-BD"
+                )
+            }
+
+            recognizer?.startListening(intent)
         } catch (_: Exception) {
         }
     }
 
-    private fun runCommand(command: String) {
+    private fun executeCommand(command: String) {
 
-        val text =
-            command.lowercase(Locale.getDefault())
+        val text = command.lowercase(Locale.getDefault())
 
         // রাজ্য AI বন্ধ
         if (
             text.contains("রাজ্য বন্ধ") ||
-            text.contains("বন্ধ হয়ে যাও") ||
-            text.contains("বন্ধ হও")
+            text.contains("বন্ধ হও") ||
+            text.contains("বন্ধ হয়ে যাও")
         ) {
             finishAndRemoveTask()
             return
         }
 
-        // ইনস্টল করা যেকোনো অ্যাপের নাম খোঁজা
+        // Settings
+        if (text.contains("সেটিং") || text.contains("settings")) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+            return
+        }
+
+        // Wi-Fi settings
+        if (text.contains("ওয়াইফাই") || text.contains("wifi")) {
+            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            return
+        }
+
+        // Bluetooth settings
+        if (text.contains("ব্লুটুথ") || text.contains("bluetooth")) {
+            startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            return
+        }
+
+        // নম্বর ডায়াল
+        if (text.contains("কল") || text.contains("call")) {
+
+            val number = Regex("\\d{5,15}")
+                .find(text)
+                ?.value
+
+            if (number != null) {
+                startActivity(
+                    Intent(
+                        Intent.ACTION_DIAL,
+                        Uri.parse("tel:$number")
+                    )
+                )
+            }
+
+            return
+        }
+
+        // ফোনের অ্যাপের নাম মিলিয়ে খুলবে
         val pm = packageManager
-        val apps = pm.getInstalledApplications(0)
 
-        for (app in apps) {
+        for (app in pm.getInstalledApplications(0)) {
 
-            val appName =
-                pm.getApplicationLabel(app)
-                    .toString()
-                    .lowercase(Locale.getDefault())
+            val name = pm.getApplicationLabel(app)
+                .toString()
+                .lowercase(Locale.getDefault())
 
             if (
-                text.contains(appName) &&
+                text.contains(name) &&
                 pm.getLaunchIntentForPackage(
                     app.packageName
                 ) != null
             ) {
-
-                val launch =
+                startActivity(
                     pm.getLaunchIntentForPackage(
                         app.packageName
                     )
-
-                startActivity(launch)
+                )
                 return
             }
         }
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-
-        super.onRequestPermissionsResult(
-            requestCode,
-            permissions,
-            grantResults
-        )
-
-        if (
-            requestCode == 101 &&
-            grantResults.isNotEmpty() &&
-            grantResults[0] ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            startVoice()
-        }
-    }
-
     override fun onDestroy() {
-
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-
+        recognizer?.destroy()
+        recognizer = null
         super.onDestroy()
     }
 }
