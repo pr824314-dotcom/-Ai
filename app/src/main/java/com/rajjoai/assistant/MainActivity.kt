@@ -1,173 +1,89 @@
-package com.example.rajyaai
+package com.rajjoai.assistant
 
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import java.util.Locale
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 
 class MainActivity : Activity() {
 
-    private var recognizer: SpeechRecognizer? = null
+    private val micPermission = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        layout.setPadding(40, 60, 40, 40)
 
-            requestPermissions(
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                10
-            )
-        } else {
-            startVoice()
-        }
-    }
+        val title = TextView(this)
+        title.text = "রাজ্য AI"
+        title.textSize = 32f
 
-    private fun startVoice() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
+        val info = TextView(this)
+        info.text =
+            "\nতোমার ভয়েস অ্যাসিস্ট্যান্ট\n\n" +
+            "Wake word: রাজ্য\n" +
+            "Response: জি স্যার, বলুন।\n"
+        info.textSize = 20f
 
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        val startButton = Button(this)
+        startButton.text = "রাজ্য AI চালু করুন"
 
-        recognizer?.setRecognitionListener(
-            object : android.speech.RecognitionListener {
+        val stopButton = Button(this)
+        stopButton.text = "রাজ্য AI বন্ধ করুন"
 
-                override fun onResults(results: Bundle?) {
-                    val words = results.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION
-                    )
+        layout.addView(title)
+        layout.addView(info)
+        layout.addView(startButton)
+        layout.addView(stopButton)
 
-                    val command = words?.firstOrNull()
+        setContentView(layout)
 
-                    if (!command.isNullOrBlank()) {
-                        executeCommand(command)
-                    }
-
-                    startListening()
-                }
-
-                override fun onError(error: Int) {
-                    startListening()
-                }
-
-                override fun onReadyForSpeech(p: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(v: Float) {}
-                override fun onBufferReceived(b: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onPartialResults(b: Bundle?) {}
-                override fun onEvent(i: Int, b: Bundle?) {}
-            }
-        )
-
-        startListening()
-    }
-
-    private fun startListening() {
-        try {
-            val intent = Intent(
-                RecognizerIntent.ACTION_RECOGNIZE_SPEECH
-            ).apply {
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                )
-                putExtra(
-                    RecognizerIntent.EXTRA_LANGUAGE,
-                    "bn-BD"
-                )
-            }
-
-            recognizer?.startListening(intent)
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun executeCommand(command: String) {
-
-        val text = command.lowercase(Locale.getDefault())
-
-        // রাজ্য AI বন্ধ
-        if (
-            text.contains("রাজ্য বন্ধ") ||
-            text.contains("বন্ধ হও") ||
-            text.contains("বন্ধ হয়ে যাও")
-        ) {
-            finishAndRemoveTask()
-            return
-        }
-
-        // Settings
-        if (text.contains("সেটিং") || text.contains("settings")) {
-            startActivity(Intent(Settings.ACTION_SETTINGS))
-            return
-        }
-
-        // Wi-Fi settings
-        if (text.contains("ওয়াইফাই") || text.contains("wifi")) {
-            startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
-            return
-        }
-
-        // Bluetooth settings
-        if (text.contains("ব্লুটুথ") || text.contains("bluetooth")) {
-            startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-            return
-        }
-
-        // নম্বর ডায়াল
-        if (text.contains("কল") || text.contains("call")) {
-
-            val number = Regex("\\d{5,15}")
-                .find(text)
-                ?.value
-
-            if (number != null) {
-                startActivity(
-                    Intent(
-                        Intent.ACTION_DIAL,
-                        Uri.parse("tel:$number")
-                    )
-                )
-            }
-
-            return
-        }
-
-        // ফোনের অ্যাপের নাম মিলিয়ে খুলবে
-        val pm = packageManager
-
-        for (app in pm.getInstalledApplications(0)) {
-
-            val name = pm.getApplicationLabel(app)
-                .toString()
-                .lowercase(Locale.getDefault())
-
-            if (
-                text.contains(name) &&
-                pm.getLaunchIntentForPackage(
-                    app.packageName
-                ) != null
+        startButton.setOnClickListener {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
             ) {
-                startActivity(
-                    pm.getLaunchIntentForPackage(
-                        app.packageName
-                    )
+                requestPermissions(
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    micPermission
                 )
-                return
+            } else {
+                startRajjo()
             }
+        }
+
+        stopButton.setOnClickListener {
+            stopService(Intent(this, RajjoVoiceService::class.java))
         }
     }
 
-    override fun onDestroy() {
-        recognizer?.destroy()
-        recognizer = null
-        super.onDestroy()
+    private fun startRajjo() {
+        val intent = Intent(this, RajjoVoiceService::class.java)
+
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        results: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, results)
+
+        if (requestCode == micPermission &&
+            results.isNotEmpty() &&
+            results[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startRajjo()
+        }
     }
 }
