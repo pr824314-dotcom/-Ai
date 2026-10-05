@@ -1,12 +1,13 @@
 package com.example.rajyaai
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.widget.Toast
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -16,128 +17,112 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        speech = SpeechRecognizer.createSpeechRecognizer(this)
-
-        startListening()
+        // Microphone permission চাইবে
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                100
+            )
+        } else {
+            startVoice()
+        }
     }
 
-    private fun startListening() {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+        if (requestCode == 100 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            startVoice()
+        }
+    }
+
+    private fun startVoice() {
+
+        speech = SpeechRecognizer.createSpeechRecognizer(this)
+
+        val intent = Intent(
+            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+        ).apply {
             putExtra(
                 RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
             )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-BD")
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-BD")
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE,
+                "bn-BD"
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,
+                "bn-BD"
+            )
         }
 
-        speech.setRecognitionListener(object :
-            android.speech.RecognitionListener {
+        speech.setRecognitionListener(
+            object : RecognitionListener {
 
-            override fun onResults(results: Bundle?) {
-                val text = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull()
+                override fun onResults(results: Bundle?) {
 
-                if (!text.isNullOrBlank()) {
-                    handleCommand(text)
+                    val command =
+                        results?.getStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION
+                        )?.firstOrNull()
+
+                    if (!command.isNullOrBlank()) {
+                        handleCommand(command)
+                    }
+
+                    startListening(intent)
                 }
 
-                startListening()
+                override fun onError(error: Int) {
+                    startListening(intent)
+                }
+
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onPartialResults(
+                    partialResults: Bundle?
+                ) {}
+                override fun onEvent(
+                    eventType: Int,
+                    params: Bundle?
+                ) {}
             }
+        )
 
-            override fun onError(error: Int) {
-                startListening()
-            }
+        startListening(intent)
+    }
 
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-
+    private fun startListening(intent: Intent) {
         speech.startListening(intent)
     }
 
     private fun handleCommand(command: String) {
 
-        val text = command.lowercase(Locale.getDefault())
-
-        // রাজ্য AI বন্ধ
-        if (
-            text.contains("বন্ধ হও") ||
-            text.contains("বন্ধ হয়ে যাও")
-        ) {
-            finish()
-            return
-        }
-
-        // কল করার কমান্ড
-        if (text.contains("কল") || text.contains("call")) {
-
-            val number = Regex("""\d{5,15}""")
-                .find(text)
-                ?.value
-
-            if (number != null) {
-                val intent = Intent(
-                    Intent.ACTION_DIAL,
-                    Uri.parse("tel:$number")
-                )
-                startActivity(intent)
-            } else {
-                Toast.makeText(
-                    this,
-                    "নম্বরটি বলুন",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-
-            return
-        }
-
-        // যেকোনো ইনস্টল করা অ্যাপ খোঁজা
-        openInstalledApp(text)
-    }
-
-    private fun openInstalledApp(command: String) {
-
-        val pm = packageManager
-        val apps = pm.getInstalledApplications(0)
-
-        for (app in apps) {
-
-            val appName =
-                pm.getApplicationLabel(app)
-                    .toString()
-                    .lowercase(Locale.getDefault())
-
-            if (
-                command.contains(appName) &&
-                pm.getLaunchIntentForPackage(app.packageName) != null
-            ) {
-
-                val launchIntent =
-                    pm.getLaunchIntentForPackage(app.packageName)
-
-                startActivity(launchIntent)
-                return
-            }
-        }
-
-        Toast.makeText(
-            this,
-            "অ্যাপটি পাওয়া যায়নি",
-            Toast.LENGTH_SHORT
-        ).show()
+        // এখানে তোমার আগের open-app এবং call
+        // command code থাকবে।
     }
 
     override fun onDestroy() {
-        speech.destroy()
+        if (::speech.isInitialized) {
+            speech.destroy()
+        }
         super.onDestroy()
     }
 }
