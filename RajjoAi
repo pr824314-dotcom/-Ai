@@ -1,0 +1,21 @@
+RajjoAi/
+│
+├── app/
+│   ├── build.gradle
+│   └── src/
+│       └── main/
+│           ├── AndroidManifest.xml
+│           ├── java/
+│           │   └── com/
+│           │       └── pranto/
+│           │           └── rajjoai/
+│           │               ├── MainActivity.kt
+│           │               └── RajjoVoiceService.kt
+│           │
+│           └── res/
+│               └── values/
+│                   └── themes.xml
+│
+├── build.gradle
+├── settings.gradle
+└── gradle.properties
