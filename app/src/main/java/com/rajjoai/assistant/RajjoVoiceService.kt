@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -16,21 +17,20 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.hardware.camera2.CameraManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class RajjoVoiceService : Service() {
 
-    private lateinit var speechRecognizer: SpeechRecognizer
+    private lateinit var recognizer: SpeechRecognizer
     private lateinit var speechIntent: Intent
     private lateinit var tts: TextToSpeech
 
     private val handler = Handler(Looper.getMainLooper())
 
     private var waitingForCommand = false
-    private var isSpeaking = false
+    private var speaking = false
 
     override fun onCreate() {
         super.onCreate()
@@ -45,8 +45,7 @@ class RajjoVoiceService : Service() {
             }
         }
 
-        speechRecognizer =
-            SpeechRecognizer.createSpeechRecognizer(this)
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
 
         speechIntent = Intent(
             RecognizerIntent.ACTION_RECOGNIZE_SPEECH
@@ -60,48 +59,44 @@ class RajjoVoiceService : Service() {
                 "bn-BD"
             )
             putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,
-                "bn-BD"
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_PARTIAL_RESULTS,
-                false
-            )
-            putExtra(
                 RecognizerIntent.EXTRA_MAX_RESULTS,
-                5
+                3
             )
         }
 
-        speechRecognizer.setRecognitionListener(
+        recognizer.setRecognitionListener(
             object : RecognitionListener {
 
                 override fun onReadyForSpeech(
                     params: android.os.Bundle?
-                ) {
-                }
+                ) {}
 
-                override fun onBeginningOfSpeech() {
-                }
+                override fun onBeginningOfSpeech() {}
 
                 override fun onRmsChanged(
                     rmsdB: Float
-                ) {
-                }
+                ) {}
 
                 override fun onBufferReceived(
                     buffer: ByteArray?
-                ) {
-                }
+                ) {}
 
-                override fun onEndOfSpeech() {
-                }
+                override fun onEndOfSpeech() {}
+
+                override fun onPartialResults(
+                    partialResults: android.os.Bundle?
+                ) {}
+
+                override fun onEvent(
+                    eventType: Int,
+                    params: android.os.Bundle?
+                ) {}
 
                 override fun onError(
                     error: Int
                 ) {
-                    if (!isSpeaking) {
-                        startListeningAfterDelay(700)
+                    if (!speaking) {
+                        listenLater(700)
                     }
                 }
 
@@ -109,59 +104,45 @@ class RajjoVoiceService : Service() {
                     results: android.os.Bundle?
                 ) {
 
-                    val matches =
+                    val resultsList =
                         results?.getStringArrayList(
                             SpeechRecognizer.RESULTS_RECOGNITION
                         )
 
                     val text =
-                        matches?.firstOrNull()
+                        resultsList
+                            ?.firstOrNull()
                             ?.lowercase(
                                 Locale("bn", "BD")
                             )
                             ?.trim()
                             ?: ""
 
-                    if (text.isNotEmpty()) {
-                        handleVoiceCommand(text)
+                    if (text.isEmpty()) {
+                        listenLater(500)
                     } else {
-                        startListeningAfterDelay(500)
+                        handleVoice(text)
                     }
-                }
-
-                override fun onPartialResults(
-                    partialResults: android.os.Bundle?
-                ) {
-                }
-
-                override fun onEvent(
-                    eventType: Int,
-                    params: android.os.Bundle?
-                ) {
                 }
             }
         )
 
-        startListeningAfterDelay(1000)
+        listenLater(1000)
     }
 
-    // =========================================================
-    // VOICE COMMAND
-    // =========================================================
+    // ================================
+    // VOICE HANDLER
+    // ================================
 
-    private fun handleVoiceCommand(command: String) {
-
-        val text = command
-            .lowercase(Locale("bn", "BD"))
-            .trim()
+    private fun handleVoice(
+        text: String
+    ) {
 
         // রাজ্য বন্ধ
         if (
             text.contains("রাজ্য বন্ধ") ||
             text.contains("রাজ্জো বন্ধ") ||
-            text.contains("রাজ্জ বন্ধ") ||
-            text.contains("রাজ্য অফ") ||
-            text.contains("রাজ্য থাম")
+            text.contains("রাজ্য অফ")
         ) {
 
             speak("জি স্যার, রাজ্য বন্ধ করছি।")
@@ -173,15 +154,17 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // Wake word
-        val hasWakeWord =
+        val wakeWord =
             text.contains("রাজ্য") ||
             text.contains("রাজ্জো") ||
             text.contains("রাজ্জ") ||
             text.contains("rajjo")
 
-        // শুধু "রাজ্য" বললে
-        if (!waitingForCommand && hasWakeWord) {
+        // শুধু রাজ্য বললে
+        if (
+            !waitingForCommand &&
+            wakeWord
+        ) {
 
             waitingForCommand = true
 
@@ -190,9 +173,9 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // Wake word ছাড়া কিছু বললে
+        // এখনো wake word পাওয়া যায়নি
         if (!waitingForCommand) {
-            startListeningAfterDelay(400)
+            listenLater(400)
             return
         }
 
@@ -201,21 +184,20 @@ class RajjoVoiceService : Service() {
         executeCommand(text)
     }
 
-    // =========================================================
-    // COMMAND PROCESSOR
-    // =========================================================
+    // ================================
+    // COMMANDS
+    // ================================
 
-    private fun executeCommand(command: String) {
+    private fun executeCommand(
+        command: String
+    ) {
 
-        // ---------------- TIME ----------------
-
+        // সময়
         if (
             command.contains("সময় কত") ||
             command.contains("সময় কত") ||
             command.contains("কয়টা বাজে") ||
-            command.contains("কয়টা বাজে") ||
-            command.contains("এখন কয়টা") ||
-            command.contains("এখন কয়টা")
+            command.contains("কয়টা বাজে")
         ) {
 
             val time =
@@ -224,12 +206,14 @@ class RajjoVoiceService : Service() {
                     Locale("bn", "BD")
                 ).format(Date())
 
-            speak("জি স্যার, এখন সময় $time।")
+            speak(
+                "জি স্যার, এখন সময় $time।"
+            )
+
             return
         }
 
-        // ---------------- DATE ----------------
-
+        // তারিখ
         if (
             command.contains("আজকের তারিখ") ||
             command.contains("আজ কত তারিখ") ||
@@ -242,578 +226,772 @@ class RajjoVoiceService : Service() {
                     Locale("bn", "BD")
                 ).format(Date())
 
-            speak("জি স্যার, আজ $date।")
+            speak(
+                "জি স্যার, আজ $date।"
+            )
+
             return
         }
 
-        // ---------------- DAY ----------------
-
+        // টর্চ ON
         if (
-            command.contains("আজ কি বার") ||
-            command.contains("আজ কী বার") ||
-            command.contains("আজ কোন বার") ||
-            command.contains("আজকের বার")
-        ) {
-
-            val day =
-                SimpleDateFormat(
-                    "EEEE",
-                    Locale("bn", "BD")
-                ).format(Date())
-
-            speak("জি স্যার, আজ $day।")
-            return
-        }
-
-        // ---------------- FLASHLIGHT ON ----------------
-
-        if (
-            command.contains("ফ্ল্যাশলাইট চালু") ||
-            command.contains("ফ্লাশলাইট চালু") ||
             command.contains("টর্চ চালু") ||
-            command.contains("ফ্ল্যাশ অন") ||
-            command.contains("টর্চ অন")
+            command.contains("ফ্ল্যাশলাইট চালু") ||
+            command.contains("ফ্ল্যাশ অন")
         ) {
 
             flashlight(true)
             return
         }
 
-        // ---------------- FLASHLIGHT OFF ----------------
-
+        // টর্চ OFF
         if (
-            command.contains("ফ্ল্যাশলাইট বন্ধ") ||
-            command.contains("ফ্লাশলাইট বন্ধ") ||
             command.contains("টর্চ বন্ধ") ||
-            command.contains("ফ্ল্যাশ অফ") ||
-            command.contains("টর্চ অফ")
+            command.contains("ফ্ল্যাশলাইট বন্ধ") ||
+            command.contains("ফ্ল্যাশ অফ")
         ) {
 
             flashlight(false)
             return
         }
 
-        // ---------------- SETTINGS ----------------
-
+        // সেটিংস
         if (
             command == "সেটিংস" ||
             command.contains("সেটিংস খোলো") ||
-            command.contains("সেটিংস খুলে দাও") ||
-            command.contains("settings")
+            command.contains("সেটিংস খুলে দাও")
         ) {
 
-            speak("জি স্যার, সেটিংস খুলছি।")
-
-            handler.postDelayed({
-
-                try {
-
-                    val intent =
-                        Intent(
-                            Settings.ACTION_SETTINGS
-                        ).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-                        }
-
-                    startActivity(intent)
-
-                } catch (_: Exception) {
-
-                    speak(
-                        "স্যার, সেটিংস খোলা যাচ্ছে না।"
-                    )
-                }
-
-            }, 800)
+            openSettings(
+                Settings.ACTION_SETTINGS,
+                "সেটিংস"
+            )
 
             return
         }
 
-        // ---------------- WIFI ----------------
-
+        // WiFi
         if (
             command.contains("ওয়াইফাই সেটিংস") ||
-            command.contains("ওয়াইফাই সেটিংস") ||
-            command.contains("wifi settings")
+            command.contains("ওয়াইফাই সেটিংস")
         ) {
 
-            speak(
-                "জি স্যার, ওয়াইফাই সেটিংস খুলছি।"
+            openSettings(
+                Settings.ACTION_WIFI_SETTINGS,
+                "ওয়াইফাই সেটিংস"
             )
-
-            handler.postDelayed({
-
-                try {
-
-                    val intent =
-                        Intent(
-                            Settings.ACTION_WIFI_SETTINGS
-                        ).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-                        }
-
-                    startActivity(intent)
-
-                } catch (_: Exception) {
-
-                    speak(
-                        "স্যার, ওয়াইফাই সেটিংস খোলা যাচ্ছে না।"
-                    )
-                }
-
-            }, 800)
 
             return
         }
 
-        // ---------------- BLUETOOTH ----------------
-
+        // Bluetooth
         if (
-            command.contains("ব্লুটুথ সেটিংস") ||
-            command.contains("bluetooth settings")
+            command.contains("ব্লুটুথ সেটিংস")
         ) {
 
-            speak(
-                "জি স্যার, ব্লুটুথ সেটিংস খুলছি।"
+            openSettings(
+                Settings.ACTION_BLUETOOTH_SETTINGS,
+                "ব্লুটুথ সেটিংস"
             )
-
-            handler.postDelayed({
-
-                try {
-
-                    val intent =
-                        Intent(
-                            Settings.ACTION_BLUETOOTH_SETTINGS
-                        ).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-                        }
-
-                    startActivity(intent)
-
-                } catch (_: Exception) {
-
-                    speak(
-                        "স্যার, ব্লুটুথ সেটিংস খোলা যাচ্ছে না।"
-                    )
-                }
-
-            }, 800)
 
             return
         }
 
-        // ---------------- CAMERA ----------------
-
+        // Camera
         if (
             command == "ক্যামেরা" ||
             command.contains("ক্যামেরা খোলো") ||
-            command.contains("ক্যামেরা খুলে দাও") ||
-            command.contains("camera")
+            command.contains("ক্যামেরা খুলে দাও")
         ) {
 
-            speak("জি স্যার, ক্যামেরা খুলছি।")
-
-            handler.postDelayed({
-
-                try {
-
-                    val intent =
-                        Intent(
-                            android.provider.MediaStore.ACTION_IMAGE_CAPTURE
-                        ).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-                        }
-
-                    startActivity(intent)
-
-                } catch (_: Exception) {
-
-                    speak(
-                        "স্যার, ক্যামেরা খোলা যাচ্ছে না।"
-                    )
-                }
-
-            }, 800)
-
+            openCamera()
             return
         }
 
-        // ---------------- PHONE / DIALER ----------------
-
+        // Phone
         if (
             command.contains("ফোন খোলো") ||
             command.contains("ফোন খুলে দাও") ||
             command.contains("ডায়ালার") ||
-            command.contains("ডায়ালার") ||
-            command.contains("dialer")
+            command.contains("ডায়ালার")
         ) {
 
-            speak("জি স্যার, ফোন খুলছি।")
-
-            handler.postDelayed({
-
-                try {
-
-                    val intent =
-                        Intent(
-                            Intent.ACTION_DIAL
-                        ).apply {
-                            addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-                        }
-
-                    startActivity(intent)
-
-                } catch (_: Exception) {
-
-                    speak(
-                        "স্যার, ফোন খোলা যাচ্ছে না।"
-                    )
-                }
-
-            }, 800)
-
+            openDialer()
             return
         }
 
-        // ---------------- GOOGLE SEARCH ----------------
-
+        // Google
         if (
             command.startsWith("গুগলে") ||
-            command.startsWith("google") ||
-            command.contains("গুগলে সার্চ")
+            command.startsWith("google")
         ) {
 
             val query =
                 command
-                    .replace(
-                        "গুগলে সার্চ কর",
-                        ""
-                    )
-                    .replace(
-                        "গুগলে সার্চ",
-                        ""
-                    )
-                    .replace(
-                        "গুগলে",
-                        ""
-                    )
-                    .replace(
-                        "google search",
-                        ""
-                    )
-                    .replace(
-                        "google",
-                        ""
-                    )
+                    .replace("গুগলে সার্চ কর", "")
+                    .replace("গুগলে সার্চ", "")
+                    .replace("গুগলে", "")
+                    .replace("google search", "")
+                    .replace("google", "")
                     .trim()
 
-            if (query.isNotEmpty()) {
-
-                googleSearch(query)
-
-            } else {
+            if (query.isEmpty()) {
 
                 speak(
                     "জি স্যার, কী সার্চ করব?"
                 )
+
+            } else {
+
+                googleSearch(query)
             }
 
             return
         }
 
-        // ---------------- YOUTUBE SEARCH ----------------
-
+        // YouTube
         if (
             command.startsWith("ইউটিউবে") ||
-            command.startsWith("youtube") ||
-            command.contains("ইউটিউবে সার্চ")
+            command.startsWith("youtube")
         ) {
 
             val query =
                 command
-                    .replace(
-                        "ইউটিউবে সার্চ কর",
-                        ""
-                    )
-                    .replace(
-                        "ইউটিউবে সার্চ",
-                        ""
-                    )
-                    .replace(
-                        "ইউটিউবে",
-                        ""
-                    )
-                    .replace(
-                        "youtube search",
-                        ""
-                    )
-                    .replace(
-                        "youtube",
-                        ""
-                    )
+                    .replace("ইউটিউবে সার্চ কর", "")
+                    .replace("ইউটিউবে সার্চ", "")
+                    .replace("ইউটিউবে", "")
+                    .replace("youtube search", "")
+                    .replace("youtube", "")
                     .trim()
 
-            if (query.isNotEmpty()) {
+            if (query.isEmpty()) {
 
-                youtubeSearch(query)
-
-            } else {
-
-                openAppByPackage(
+                openApp(
                     "com.google.android.youtube",
                     "ইউটিউব"
                 )
+
+            } else {
+
+                youtubeSearch(query)
             }
 
             return
         }
 
-        // ---------------- INSTALLED APPS ----------------
-
+        // Facebook / WhatsApp / Messenger ইত্যাদি
         if (openInstalledApp(command)) {
             return
         }
-
-        // ---------------- UNKNOWN ----------------
 
         speak(
             "স্যার, এই কাজটি এখনো আমার মধ্যে যোগ করা হয়নি।"
         )
     }
 
-    // =========================================================
-    // INSTALLED APP OPENER
-    // =========================================================
+    // ================================
+    // APP OPEN
+    // ================================
 
     private fun openInstalledApp(
         command: String
     ): Boolean {
 
-        val pm = packageManager
-
-        val launcherIntent =
-            Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-
-        val apps =
-            pm.queryIntentActivities(
-                launcherIntent,
-                PackageManager.MATCH_ALL
-            )
-
-        var requested =
+        var name =
             command
-                .lowercase(Locale("bn", "BD"))
+                .lowercase(
+                    Locale("bn", "BD")
+                )
                 .trim()
 
         val removeWords = listOf(
-
             "ওপেন করে দাও",
             "ওপেন কর",
             "ওপেন করো",
             "open করে দাও",
             "open কর",
             "open",
-
             "খুলে দাও",
             "খুলে দিও",
             "খোলো",
             "খুল",
-
             "চালু করে দাও",
             "চালু কর",
             "চালু করো",
-            "চালু করে",
-
             "launch",
             "start"
         )
 
         for (word in removeWords) {
-            requested =
-                requested.replace(
-                    word,
-                    " "
-                )
+            name = name.replace(word, " ")
         }
 
-        requested =
-            requested
+        name =
+            name
                 .replace(
                     Regex("\\s+"),
                     " "
                 )
                 .trim()
 
-        if (requested.isEmpty()) {
+        if (name.isEmpty()) {
             return false
         }
 
-        val aliases =
-            mapOf(
+        val aliases = mapOf(
+            "ফেসবুক" to "facebook",
+            "এফবি" to "facebook",
+            "fb" to "facebook",
+            "ইউটিউব" to "youtube",
+            "হোয়াটসঅ্যাপ" to "whatsapp",
+            "হোয়াটসঅ্যাপ" to "whatsapp",
+            "মেসেঞ্জার" to "messenger",
+            "ইনস্টাগ্রাম" to "instagram",
+            "টিকটক" to "tiktok",
+            "ক্রোম" to "chrome",
+            "জিমেইল" to "gmail",
+            "প্লে স্টোর" to "play store",
+            "প্লেস্টোর" to "play store"
+        )
 
-                "ফেসবুক" to listOf(
-                    "facebook"
-                ),
+        val target =
+            aliases[name] ?: name
 
-                "এফবি" to listOf(
-                    "facebook"
-                ),
-
-                "fb" to listOf(
-                    "facebook"
-                ),
-
-                "ইউটিউব" to listOf(
-                    "youtube"
-                ),
-
-                "youtube" to listOf(
-                    "youtube"
-                ),
-
-                "হোয়াটসঅ্যাপ" to listOf(
-                    "whatsapp"
-                ),
-
-                "হোয়াটসঅ্যাপ" to listOf(
-                    "whatsapp"
-                ),
-
-                "হোয়াটস অ্যাপ" to listOf(
-                    "whatsapp"
-                ),
-
-                "whatsapp" to listOf(
-                    "whatsapp"
-                ),
-
-                "মেসেঞ্জার" to listOf(
-                    "messenger"
-                ),
-
-                "messenger" to listOf(
-                    "messenger"
-                ),
-
-                "ইনস্টাগ্রাম" to listOf(
-                    "instagram"
-                ),
-
-                "instagram" to listOf(
-                    "instagram"
-                ),
-
-                "টিকটক" to listOf(
-                    "tiktok"
-                ),
-
-                "tiktok" to listOf(
-                    "tiktok"
-                ),
-
-                "ক্রোম" to listOf(
-                    "chrome"
-                ),
-
-                "chrome" to listOf(
-                    "chrome"
-                ),
-
-                "জিমেইল" to listOf(
-                    "gmail"
-                ),
-
-                "gmail" to listOf(
-                    "gmail"
-                ),
-
-                "প্লে স্টোর" to listOf(
-                    "play store",
-                    "google play"
-                ),
-
-                "প্লেস্টোর" to listOf(
-                    "play store",
-                    "google play"
-                ),
-
-                "play store" to listOf(
-                    "play store",
-                    "google play"
+        val launcherIntent =
+            Intent(Intent.ACTION_MAIN).apply {
+                addCategory(
+                    Intent.CATEGORY_LAUNCHER
                 )
+            }
+
+        val apps =
+            packageManager.queryIntentActivities(
+                launcherIntent,
+                PackageManager.MATCH_ALL
             )
-
-        val possibleNames =
-            mutableListOf<String>()
-
-        possibleNames.add(requested)
-
-        aliases[requested]?.let {
-            possibleNames.addAll(it)
-        }
 
         for (info in apps) {
 
             val label =
-                info.loadLabel(pm)
+                info.loadLabel(
+                    packageManager
+                )
                     .toString()
                     .lowercase(
                         Locale("bn", "BD")
                     )
                     .trim()
 
-            for (name in possibleNames) {
+            if (
+                label == target ||
+                label.contains(target) ||
+                target.contains(label)
+            ) {
 
-                if (
-                    label == name ||
-                    label.contains(name) ||
-                    name.contains(label)
-                ) {
-
-                    val launchIntent =
-                        pm.getLaunchIntentForPackage(
+                val launchIntent =
+                    packageManager
+                        .getLaunchIntentForPackage(
                             info.activityInfo.packageName
                         )
 
-                    if (launchIntent != null) {
+                if (launchIntent != null) {
 
-                        val appName =
-                            info.loadLabel(pm)
-                                .toString()
+                    val appName =
+                        info.loadLabel(
+                            packageManager
+                        ).toString()
 
-                        speak(
-                            "জি স্যার, $appName খুলছি।"
+                    speak(
+                        "জি স্যার, $appName খুলছি।"
+                    )
+
+                    handler.postDelayed({
+
+                        try {
+
+                            launchIntent.addFlags(
+                                Intent.FLAG_ACTIVITY_NEW_TASK
+                            )
+
+                            startActivity(
+                                launchIntent
+                            )
+
+                        } catch (_: Exception) {
+
+                            speak(
+                                "স্যার, অ্যাপটি খোলা যাচ্ছে না।"
+                            )
+                        }
+
+                    }, 800)
+
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    // ================================
+    // OPEN APP
+    // ================================
+
+    private fun openApp(
+        packageName: String,
+        appName: String
+    ) {
+
+        val intent =
+            packageManager
+                .getLaunchIntentForPackage(
+                    packageName
+                )
+
+        if (intent == null) {
+
+            speak(
+                "স্যার, $appName ফোনে পাওয়া যাচ্ছে না।"
+            )
+
+            return
+        }
+
+        speak(
+            "জি স্যার, $appName খুলছি।"
+        )
+
+        handler.postDelayed({
+
+            try {
+
+                intent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+
+                startActivity(intent)
+
+            } catch (_: Exception) {
+
+                speak(
+                    "স্যার, $appName খোলা যাচ্ছে না।"
+                )
+            }
+
+        }, 800)
+    }
+
+    // ================================
+    // SETTINGS
+    // ================================
+
+    private fun openSettings(
+        action: String,
+        name: String
+    ) {
+
+        speak(
+            "জি স্যার, $name খুলছি।"
+        )
+
+        handler.postDelayed({
+
+            try {
+
+                startActivity(
+                    Intent(action).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
                         )
+                    }
+                )
 
-                        handler.postDelayed({
+            } catch (_: Exception) {
 
-                            try {
+                speak(
+                    "স্যার, $name খোলা যাচ্ছে না।"
+                )
+            }
 
-                                launchIntent.addFlags(
-                                    Intent.FLAG_ACTIVITY_NEW_TASK
-                                )
+        }, 800)
+    }
 
-                                startActivity(
-                                    launchIntent
-                                )
+    // ================================
+    // CAMERA
+    // ================================
 
-                            } catch (_: Exception) {
+    private fun openCamera() {
 
-                                speak(
-                                    "স্যার, অ্যাপটি খোলা যাচ্ছে না।"
-                                )
-                            }
+        speak(
+            "জি স্যার, ক্যামেরা খুলছি।"
+        )
 
-                       
+        handler.postDelayed({
+
+            try {
+
+                startActivity(
+                    Intent(
+                        android.provider.MediaStore.ACTION_IMAGE_CAPTURE
+                    ).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
+                        )
+                    }
+                )
+
+            } catch (_: Exception) {
+
+                speak(
+                    "স্যার, ক্যামেরা খোলা যাচ্ছে না।"
+                )
+            }
+
+        }, 800)
+    }
+
+    // ================================
+    // DIALER
+    // ================================
+
+    private fun openDialer() {
+
+        speak(
+            "জি স্যার, ফোন খুলছি।"
+        )
+
+        handler.postDelayed({
+
+            try {
+
+                startActivity(
+                    Intent(
+                        Intent.ACTION_DIAL
+                    ).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
+                        )
+                    }
+                )
+
+            } catch (_: Exception) {
+
+                speak(
+                    "স্যার, ফোন খোলা যাচ্ছে না।"
+                )
+            }
+
+        }, 800)
+    }
+
+    // ================================
+    // GOOGLE
+    // ================================
+
+    private fun googleSearch(
+        query: String
+    ) {
+
+        speak(
+            "জি স্যার, গুগলে সার্চ করছি।"
+        )
+
+        handler.postDelayed({
+
+            try {
+
+                val url =
+                    "https://www.google.com/search?q=" +
+                            Uri.encode(query)
+
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(url)
+                    ).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
+                        )
+                    }
+                )
+
+            } catch (_: Exception) {
+
+                speak(
+                    "স্যার, গুগল সার্চ খোলা যাচ্ছে না।"
+                )
+            }
+
+        }, 800)
+    }
+
+    // ================================
+    // YOUTUBE
+    // ================================
+
+    private fun youtubeSearch(
+        query: String
+    ) {
+
+        speak(
+            "জি স্যার, ইউটিউবে সার্চ করছি।"
+        )
+
+        handler.postDelayed({
+
+            try {
+
+                val url =
+                    "https://www.youtube.com/results?search_query=" +
+                            Uri.encode(query)
+
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(url)
+                    ).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
+                        )
+                    }
+                )
+
+            } catch (_: Exception) {
+
+                speak(
+                    "স্যার, ইউটিউব সার্চ খোলা যাচ্ছে না।"
+                )
+            }
+
+        }, 800)
+    }
+
+    // ================================
+    // FLASHLIGHT
+    // ================================
+
+    private fun flashlight(
+        turnOn: Boolean
+    ) {
+
+        try {
+
+            val cameraManager =
+                getSystemService(
+                    CAMERA_SERVICE
+                ) as CameraManager
+
+            val cameraId =
+                cameraManager
+                    .cameraIdList
+                    .firstOrNull()
+
+            if (cameraId == null) {
+
+                speak(
+                    "স্যার, ফোনে ফ্ল্যাশ পাওয়া যাচ্ছে না।"
+                )
+
+                return
+            }
+
+            cameraManager.setTorchMode(
+                cameraId,
+                turnOn
+            )
+
+            if (turnOn) {
+
+                speak(
+                    "জি স্যার, টর্চ চালু করেছি।"
+                )
+
+            } else {
+
+                speak(
+                    "জি স্যার, টর্চ বন্ধ করেছি।"
+                )
+            }
+
+        } catch (_: Exception) {
+
+            speak(
+                "স্যার, টর্চ নিয়ন্ত্রণ করা যাচ্ছে না।"
+            )
+        }
+    }
+
+    // ================================
+    // LISTENING
+    // ================================
+
+    private fun listen() {
+
+        if (speaking) {
+            return
+        }
+
+        try {
+
+            recognizer.cancel()
+
+            recognizer.startListening(
+                speechIntent
+            )
+
+        } catch (_: Exception) {
+
+            listenLater(1000)
+        }
+    }
+
+    private fun listenLater(
+        delay: Long
+    ) {
+
+        handler.postDelayed({
+
+            if (!speaking) {
+                listen()
+            }
+
+        }, delay)
+    }
+
+    // ================================
+    // SPEAK
+    // ================================
+
+    private fun speak(
+        text: String
+    ) {
+
+        speaking = true
+
+        try {
+            recognizer.cancel()
+        } catch (_: Exception) {
+        }
+
+        if (!::tts.isInitialized) {
+
+            speaking = false
+            listenLater(300)
+            return
+        }
+
+        tts.speak(
+            text,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "RAJJO_SPEECH"
+        )
+
+        handler.postDelayed({
+
+            speaking = false
+
+            if (waitingForCommand) {
+                listenLater(300)
+            } else {
+                listenLater(500)
+            }
+
+        }, 1800)
+    }
+
+    // ================================
+    // NOTIFICATION
+    // ================================
+
+    private fun createNotificationChannel() {
+
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.O
+        ) {
+
+            val channel =
+                NotificationChannel(
+                    "rajjo_ai",
+                    "রাজ্য AI",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+
+            getSystemService(
+                NotificationManager::class.java
+            ).createNotificationChannel(
+                channel
+            )
+        }
+    }
+
+    private fun createNotification(): Notification {
+
+        return if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.O
+        ) {
+
+            Notification.Builder(
+                this,
+                "rajjo_ai"
+            )
+                .setContentTitle(
+                    "রাজ্য AI চালু আছে"
+                )
+                .setContentText(
+                    "বলুন: রাজ্য"
+                )
+                .setSmallIcon(
+                    android.R.drawable.ic_btn_speak_now
+                )
+                .setOngoing(true)
+                .build()
+
+        } else {
+
+            Notification.Builder(this)
+                .setContentTitle(
+                    "রাজ্য AI চালু আছে"
+                )
+                .setContentText(
+                    "বলুন: রাজ্য"
+                )
+                .setSmallIcon(
+                    android.R.drawable.ic_btn_speak_now
+                )
+                .setOngoing(true)
+                .build()
+        }
+    }
+
+    // ================================
+    // DESTROY
+    // ================================
+
+    override fun onDestroy() {
+
+        handler.removeCallbacksAndMessages(null)
+
+        try {
+            recognizer.destroy()
+        } catch (_: Exception) {
+        }
+
+        try {
+            tts.stop()
+            tts.shutdown()
+        } catch (_: Exception) {
+        }
+
+        super.onDestroy()
+    }
+
+    override fun onBind(
+        intent: Intent?
+    ): IBinder? {
+        return null
+    }
+}
