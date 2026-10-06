@@ -1,28 +1,18 @@
 package com.rajjoai.assistant
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.ComponentName
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
+import android.os.*
 import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.speech.*
 import android.speech.tts.TextToSpeech
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+import kotlin.math.max
 
 class RajjoVoiceService : Service() {
 
@@ -31,7 +21,6 @@ class RajjoVoiceService : Service() {
 
     private var waitingForCommand = false
     private var speaking = false
-    private var flashlightOn = false
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -39,7 +28,15 @@ class RajjoVoiceService : Service() {
         super.onCreate()
 
         createNotificationChannel()
-        startRajjoForeground()
+
+        val notification = Notification.Builder(this, "rajjo_voice")
+            .setContentTitle("রাজ্য AI")
+            .setContentText("রাজ্য AI শুনছে")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+            .build()
+
+        startForeground(1001, notification)
 
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
@@ -56,47 +53,24 @@ class RajjoVoiceService : Service() {
         }
     }
 
-    // ---------------- FOREGROUND ----------------
-
-    private fun startRajjoForeground() {
-
-        val notification = Notification.Builder(this, "rajjo_voice")
-            .setContentTitle("রাজ্য AI")
-            .setContentText("রাজ্য AI শুনছে")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setOngoing(true)
-            .build()
-
-        startForeground(1001, notification)
-    }
-
     private fun createNotificationChannel() {
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             val channel = NotificationChannel(
                 "rajjo_voice",
                 "রাজ্য AI Voice",
                 NotificationManager.IMPORTANCE_LOW
             )
 
-            val manager =
-                getSystemService(NotificationManager::class.java)
-
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
-    // ---------------- LISTENING ----------------
-
-    private fun startListeningAfterDelay(delay: Long = 700) {
-
+    private fun startListeningAfterDelay(delay: Long = 500) {
         handler.postDelayed({
-
             if (!speaking) {
                 startListening()
             }
-
         }, delay)
     }
 
@@ -105,35 +79,24 @@ class RajjoVoiceService : Service() {
         if (speaking) return
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-
-            speak(
-                "স্যার, এই ফোনে speech recognition পাওয়া যাচ্ছে না।"
-            )
-
+            speak("স্যার, এই ফোনে ভয়েস রিকগনিশন পাওয়া যাচ্ছে না।")
             return
         }
 
         recognizer?.destroy()
 
-        recognizer =
-            SpeechRecognizer.createSpeechRecognizer(this)
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this)
 
         recognizer?.setRecognitionListener(
             object : RecognitionListener {
 
-                override fun onReadyForSpeech(
-                    params: Bundle?
-                ) {}
+                override fun onReadyForSpeech(params: Bundle?) {}
 
                 override fun onBeginningOfSpeech() {}
 
-                override fun onRmsChanged(
-                    rmsdB: Float
-                ) {}
+                override fun onRmsChanged(rmsdB: Float) {}
 
-                override fun onBufferReceived(
-                    buffer: ByteArray?
-                ) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
 
                 override fun onEndOfSpeech() {}
 
@@ -147,15 +110,12 @@ class RajjoVoiceService : Service() {
                 ) {}
 
                 override fun onError(error: Int) {
-
                     if (!speaking) {
-                        startListeningAfterDelay(500)
+                        startListeningAfterDelay(400)
                     }
                 }
 
-                override fun onResults(
-                    results: Bundle?
-                ) {
+                override fun onResults(results: Bundle?) {
 
                     val list =
                         results?.getStringArrayList(
@@ -165,9 +125,7 @@ class RajjoVoiceService : Service() {
                     val text =
                         list?.firstOrNull()
                             ?.trim()
-                            ?.lowercase(
-                                Locale("bn", "BD")
-                            )
+                            ?.lowercase(Locale("bn", "BD"))
                             ?: ""
 
                     if (text.isEmpty()) {
@@ -180,8 +138,9 @@ class RajjoVoiceService : Service() {
             }
         )
 
-        val intent =
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        val intent = Intent(
+            RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+        )
 
         intent.putExtra(
             RecognizerIntent.EXTRA_LANGUAGE_MODEL,
@@ -203,19 +162,12 @@ class RajjoVoiceService : Service() {
             5
         )
 
-        intent.putExtra(
-            RecognizerIntent.EXTRA_PARTIAL_RESULTS,
-            false
-        )
-
         try {
             recognizer?.startListening(intent)
         } catch (_: Exception) {
             startListeningAfterDelay(1000)
         }
     }
-
-    // ---------------- WAKE WORD ----------------
 
     private fun processSpeech(text: String) {
 
@@ -244,22 +196,23 @@ class RajjoVoiceService : Service() {
 
         return text.contains("রাজ্য") ||
                 text.contains("রাজ্জো") ||
+                text.contains("রাজ্জ") ||
                 text.contains("rajjo")
     }
-
-    // ---------------- COMMAND ENGINE ----------------
 
     private fun handleCommand(text: String) {
 
         val command = normalize(text)
 
-        // রাজ্য নিজে বন্ধ
+        // =========================
+        // রাজ্য বন্ধ
+        // =========================
+
         if (
             command.contains("বন্ধ হও") ||
             command.contains("বন্ধ হয়ে যাও") ||
-            command.contains("বন্ধ হ") ||
-            command.contains("থেমে যাও") ||
-            command.contains("শোনা বন্ধ কর")
+            command.contains("শোনা বন্ধ কর") ||
+            command.contains("থেমে যাও")
         ) {
 
             speakAndStop(
@@ -269,35 +222,44 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // FLASHLIGHT ON
+        // =========================
+        // FLASH ON
+        // =========================
+
         if (
             command.contains("ফ্ল্যাশ চালু") ||
             command.contains("ফ্লাশ চালু") ||
             command.contains("টর্চ চালু") ||
             command.contains("টর্চ অন") ||
-            command.contains("flash on") ||
-            command.contains("flashlight on")
+            command.contains("flash on")
         ) {
 
-            setFlashlight(true)
+            setFlash(true)
+
             return
         }
 
-        // FLASHLIGHT OFF
+        // =========================
+        // FLASH OFF
+        // =========================
+
         if (
             command.contains("ফ্ল্যাশ বন্ধ") ||
             command.contains("ফ্লাশ বন্ধ") ||
             command.contains("টর্চ বন্ধ") ||
             command.contains("টর্চ অফ") ||
-            command.contains("flash off") ||
-            command.contains("flashlight off")
+            command.contains("flash off")
         ) {
 
-            setFlashlight(false)
+            setFlash(false)
+
             return
         }
 
+        // =========================
         // SETTINGS
+        // =========================
+
         if (
             command.contains("সেটিংস") ||
             command.contains("settings")
@@ -305,14 +267,55 @@ class RajjoVoiceService : Service() {
 
             speak("জি স্যার, সেটিংস খুলছি।")
 
-            openActivityDelayed {
+            openDelayed {
                 Intent(Settings.ACTION_SETTINGS)
             }
 
             return
         }
 
+        // =========================
+        // WIFI SETTINGS
+        // =========================
+
+        if (
+            command.contains("ওয়াইফাই") ||
+            command.contains("wifi")
+        ) {
+
+            speak("জি স্যার, ওয়াইফাই সেটিংস খুলছি।")
+
+            openDelayed {
+                Intent(Settings.ACTION_WIFI_SETTINGS)
+            }
+
+            return
+        }
+
+        // =========================
+        // BLUETOOTH SETTINGS
+        // =========================
+
+        if (
+            command.contains("ব্লুটুথ") ||
+            command.contains("bluetooth")
+        ) {
+
+            speak("জি স্যার, ব্লুটুথ সেটিংস খুলছি।")
+
+            openDelayed {
+                Intent(
+                    Settings.ACTION_BLUETOOTH_SETTINGS
+                )
+            }
+
+            return
+        }
+
+        // =========================
         // CAMERA
+        // =========================
+
         if (
             command.contains("ক্যামেরা") ||
             command.contains("camera")
@@ -320,31 +323,39 @@ class RajjoVoiceService : Service() {
 
             speak("জি স্যার, ক্যামেরা খুলছি।")
 
-            openActivityDelayed {
-                Intent("android.media.action.IMAGE_CAPTURE")
+            openDelayed {
+                Intent(
+                    "android.media.action.IMAGE_CAPTURE"
+                )
             }
 
             return
         }
 
+        // =========================
         // PHONE / DIALER
+        // =========================
+
         if (
             command.contains("ফোন খোলো") ||
-            command.contains("কল খোলো") ||
             command.contains("ডায়ালার") ||
+            command.contains("কল খোলো") ||
             command.contains("dialer")
         ) {
 
             speak("জি স্যার, ফোন খুলছি।")
 
-            openActivityDelayed {
+            openDelayed {
                 Intent(Intent.ACTION_DIAL)
             }
 
             return
         }
 
+        // =========================
         // TIME
+        // =========================
+
         if (
             command.contains("সময়") ||
             command.contains("কয়টা বাজে") ||
@@ -363,7 +374,10 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // =========================
         // DATE
+        // =========================
+
         if (
             command.contains("তারিখ") ||
             command.contains("আজকের তারিখ")
@@ -380,7 +394,10 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // =========================
         // DAY
+        // =========================
+
         if (
             command.contains("আজ কী বার") ||
             command.contains("আজ কি বার") ||
@@ -398,7 +415,10 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // =========================
         // GOOGLE SEARCH
+        // =========================
+
         if (
             command.startsWith("গুগলে সার্চ") ||
             command.startsWith("google search")
@@ -414,7 +434,7 @@ class RajjoVoiceService : Service() {
 
                 speak("জি স্যার, গুগলে সার্চ করছি।")
 
-                openActivityDelayed {
+                openDelayed {
 
                     Intent(
                         Intent.ACTION_VIEW,
@@ -433,7 +453,10 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // =========================
         // YOUTUBE SEARCH
+        // =========================
+
         if (
             command.startsWith("ইউটিউবে সার্চ") ||
             command.startsWith("youtube search")
@@ -449,7 +472,7 @@ class RajjoVoiceService : Service() {
 
                 speak("জি স্যার, ইউটিউবে সার্চ করছি।")
 
-                openActivityDelayed {
+                openDelayed {
 
                     Intent(
                         Intent.ACTION_VIEW,
@@ -468,22 +491,24 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // ANY INSTALLED APP
-        val opened =
-            openInstalledApp(command)
+        // =========================
+        // INSTALLED APP OPEN
+        // =========================
 
-        if (opened) {
+        if (openInstalledApp(command)) {
             return
         }
 
-        // SIMPLE NATURAL ANSWERS
-        answerSimpleQuestion(command)
+        // =========================
+        // BASIC AI-LIKE RESPONSES
+        // =========================
 
+        answerLocal(command)
     }
 
-    // ---------------- APP LAUNCHER ----------------
-
-    private fun openInstalledApp(command: String): Boolean {
+    private fun openInstalledApp(
+        command: String
+    ): Boolean {
 
         val pm = packageManager
 
@@ -498,8 +523,7 @@ class RajjoVoiceService : Service() {
                 PackageManager.MATCH_ALL
             )
 
-        // "খোলো", "চালু কর", "open" বাদ দিয়ে
-        val requested =
+        var requested =
             command
                 .replace("খোলো", "")
                 .replace("খুলে দাও", "")
@@ -513,15 +537,14 @@ class RajjoVoiceService : Service() {
             return false
         }
 
+        var bestLabel: String? = null
+        var bestIntent: Intent? = null
+
         for (info in apps) {
 
             val label =
                 info.loadLabel(pm)
                     .toString()
-                    .lowercase(Locale("bn", "BD"))
-
-            val packageName =
-                info.activityInfo.packageName
                     .lowercase(Locale("bn", "BD"))
 
             if (
@@ -537,37 +560,43 @@ class RajjoVoiceService : Service() {
 
                 if (launchIntent != null) {
 
-                    speak(
-                        "জি স্যার, $label খুলছি।"
-                    )
+                    bestLabel = label
+                    bestIntent = launchIntent
 
-                    handler.postDelayed({
-
-                        launchIntent.addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK
-                        )
-
-                        try {
-                            startActivity(launchIntent)
-                        } catch (_: Exception) {
-                            speak(
-                                "স্যার, অ্যাপটি খোলা যাচ্ছে না।"
-                            )
-                        }
-
-                    }, 1000)
-
-                    return true
+                    break
                 }
             }
+        }
+
+        if (bestIntent != null) {
+
+            speak(
+                "জি স্যার, $bestLabel খুলছি।"
+            )
+
+            handler.postDelayed({
+
+                bestIntent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+
+                try {
+                    startActivity(bestIntent)
+                } catch (_: Exception) {
+                    speak(
+                        "স্যার, অ্যাপটি খোলা যাচ্ছে না।"
+                    )
+                }
+
+            }, 1000)
+
+            return true
         }
 
         return false
     }
 
-    // ---------------- FLASHLIGHT ----------------
-
-    private fun setFlashlight(enable: Boolean) {
+    private fun setFlash(enable: Boolean) {
 
         try {
 
@@ -595,8 +624,10 @@ class RajjoVoiceService : Service() {
 
                 if (
                     hasFlash &&
-                    facing == CameraCharacteristics.LENS_FACING_BACK
+                    facing ==
+                    CameraCharacteristics.LENS_FACING_BACK
                 ) {
+
                     cameraId = id
                     break
                 }
@@ -605,7 +636,7 @@ class RajjoVoiceService : Service() {
             if (cameraId == null) {
 
                 speak(
-                    "দুঃখিত স্যার, এই ফোনে ফ্ল্যাশলাইট পাওয়া যায়নি।"
+                    "স্যার, এই ফোনে ফ্ল্যাশ পাওয়া যাচ্ছে না।"
                 )
 
                 return
@@ -616,12 +647,17 @@ class RajjoVoiceService : Service() {
                 enable
             )
 
-            flashlightOn = enable
-
             if (enable) {
-                speak("জি স্যার, ফ্ল্যাশ চালু করেছি।")
+
+                speak(
+                    "জি স্যার, ফ্ল্যাশ চালু করেছি।"
+                )
+
             } else {
-                speak("জি স্যার, ফ্ল্যাশ বন্ধ করেছি।")
+
+                speak(
+                    "জি স্যার, ফ্ল্যাশ বন্ধ করেছি।"
+                )
             }
 
         } catch (_: Exception) {
@@ -632,18 +668,15 @@ class RajjoVoiceService : Service() {
         }
     }
 
-    // ---------------- OPEN ACTIVITY ----------------
-
-    private fun openActivityDelayed(
-        intentProvider: () -> Intent
+    private fun openDelayed(
+        provider: () -> Intent
     ) {
 
         handler.postDelayed({
 
             try {
 
-                val intent =
-                    intentProvider()
+                val intent = provider()
 
                 intent.addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK
@@ -658,70 +691,62 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 1000)
+        }, 900)
     }
 
-    // ---------------- SIMPLE AI-LIKE ANSWERS ----------------
-
-    private fun answerSimpleQuestion(
+    private fun answerLocal(
         command: String
     ) {
 
         when {
 
-            command.contains("তুমি কে") -> {
+            command.contains("তুমি কে") ->
 
                 speak(
                     "আমি রাজ্য AI, আপনার বাংলা ভয়েস অ্যাসিস্ট্যান্ট।"
                 )
-            }
 
-            command.contains("তোমার নাম কী") ||
-                    command.contains("তোমার নাম কি") -> {
+            command.contains("তোমার নাম") ->
 
                 speak(
                     "আমার নাম রাজ্য AI।"
                 )
-            }
 
             command.contains("হ্যালো") ||
-                    command.contains("হাই") ||
-                    command.contains("hello") -> {
+            command.contains("হাই") ||
+            command.contains("hello") ->
 
                 speak(
                     "হ্যালো স্যার। বলুন, কী করতে পারি?"
                 )
-            }
 
-            command.contains("ধন্যবাদ") -> {
+            command.contains("ধন্যবাদ") ->
 
                 speak(
                     "স্বাগতম স্যার।"
                 )
-            }
 
-            else -> {
+            else ->
 
                 speak(
-                    "স্যার, কথাটা বুঝেছি। এই কাজের জন্য আমার AI উত্তর ব্যবস্থা এখনো সংযুক্ত করা হয়নি।"
+                    "স্যার, এই কমান্ডটি এখনো আমার কাজের তালিকায় যোগ করা হয়নি।"
                 )
-            }
         }
     }
 
-    // ---------------- TEXT NORMALIZE ----------------
-
-    private fun normalize(text: String): String {
+    private fun normalize(
+        text: String
+    ): String {
 
         return text
             .trim()
             .lowercase(Locale("bn", "BD"))
-            .replace("  ", " ")
+            .replace(Regex("\\s+"), " ")
     }
 
-    // ---------------- SPEAK ----------------
-
-    private fun speak(text: String) {
+    private fun speak(
+        text: String
+    ) {
 
         speaking = true
 
@@ -736,14 +761,14 @@ class RajjoVoiceService : Service() {
 
             speaking = false
 
-            startListeningAfterDelay(500)
+            startListeningAfterDelay(400)
 
-            
-
-        }, 2200)
+        }, max(2200, text.length * 70L))
     }
 
-    private fun speakAndStop(text: String) {
+    private fun speakAndStop(
+        text: String
+    ) {
 
         speaking = true
 
@@ -758,10 +783,8 @@ class RajjoVoiceService : Service() {
 
             stopSelf()
 
-        }, 2200)
+        }, max(2200, text.length * 70L))
     }
-
-    // ---------------- SERVICE ----------------
 
     override fun onDestroy() {
 
@@ -779,7 +802,5 @@ class RajjoVoiceService : Service() {
 
     override fun onBind(
         intent: Intent?
-    ): IBinder? {
-        return null
-    }
+    ): IBinder? = null
 }
