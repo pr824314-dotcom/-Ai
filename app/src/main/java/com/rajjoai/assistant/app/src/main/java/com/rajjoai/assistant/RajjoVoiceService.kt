@@ -736,9 +736,9 @@ class RajjoVoiceService : Service() {
 
             speaking = false
 
-            if (!isDestroyed) {
-                startListeningAfterDelay(500)
-            }
+            startListeningAfterDelay(500)
+
+            
 
         }, 2200)
     }
