@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Build
@@ -60,7 +59,11 @@ class RajjoVoiceService : Service() {
             )
             putExtra(
                 RecognizerIntent.EXTRA_MAX_RESULTS,
-                3
+                5
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_PARTIAL_RESULTS,
+                true
             )
         }
 
@@ -96,7 +99,7 @@ class RajjoVoiceService : Service() {
                     error: Int
                 ) {
                     if (!speaking) {
-                        listenLater(700)
+                        listenLater(500)
                     }
                 }
 
@@ -104,22 +107,22 @@ class RajjoVoiceService : Service() {
                     results: android.os.Bundle?
                 ) {
 
-                    val resultsList =
+                    val list =
                         results?.getStringArrayList(
                             SpeechRecognizer.RESULTS_RECOGNITION
                         )
 
                     val text =
-                        resultsList
+                        list
                             ?.firstOrNull()
+                            ?.trim()
                             ?.lowercase(
                                 Locale("bn", "BD")
                             )
-                            ?.trim()
                             ?: ""
 
                     if (text.isEmpty()) {
-                        listenLater(500)
+                        listenLater(300)
                     } else {
                         handleVoice(text)
                     }
@@ -130,22 +133,29 @@ class RajjoVoiceService : Service() {
         listenLater(1000)
     }
 
-    // ================================
+    // ==========================================
     // VOICE HANDLER
-    // ================================
+    // ==========================================
 
     private fun handleVoice(
-        text: String
+        originalText: String
     ) {
+
+        val text = normalize(originalText)
 
         // রাজ্য বন্ধ
         if (
             text.contains("রাজ্য বন্ধ") ||
             text.contains("রাজ্জো বন্ধ") ||
-            text.contains("রাজ্য অফ")
+            text.contains("রাজ্য অফ") ||
+            text.contains("রাজ্জো অফ")
         ) {
 
-            speak("জি স্যার, রাজ্য বন্ধ করছি।")
+            waitingForCommand = false
+
+            speak(
+                "জি স্যার, রাজ্য বন্ধ করছি।"
+            )
 
             handler.postDelayed({
                 stopSelf()
@@ -154,48 +164,79 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        val wakeWord =
+        val hasWakeWord =
             text.contains("রাজ্য") ||
             text.contains("রাজ্জো") ||
             text.contains("রাজ্জ") ||
             text.contains("rajjo")
 
-        // শুধু রাজ্য বললে
-        if (
-            !waitingForCommand &&
-            wakeWord
-        ) {
+        // ======================================
+        // "রাজ্য ফেসবুক চালু কর"
+        // একসাথে বলা হলে এখানেই কমান্ড বের হবে
+        // ======================================
 
-            waitingForCommand = true
+        if (!waitingForCommand && hasWakeWord) {
 
-            speak("জি স্যার, বলুন।")
+            val command =
+                text
+                    .replace("রাজ্য", "")
+                    .replace("রাজ্জো", "")
+                    .replace("রাজ্জ", "")
+                    .replace("rajjo", "")
+                    .trim()
+
+            if (command.isNotEmpty()) {
+
+                executeCommand(command)
+
+            } else {
+
+                waitingForCommand = true
+
+                speak(
+                    "জি স্যার, বলুন।"
+                )
+            }
 
             return
         }
 
-        // এখনো wake word পাওয়া যায়নি
-        if (!waitingForCommand) {
-            listenLater(400)
+        // ======================================
+        // আগে "রাজ্য" বলা হয়েছিল
+        // এখন command শুনছি
+        // ======================================
+
+        if (waitingForCommand) {
+
+            waitingForCommand = false
+
+            executeCommand(text)
+
             return
         }
 
-        waitingForCommand = false
-
-        executeCommand(text)
+        // অন্য কোনো কথা হলে আবার শুনবে
+        listenLater(300)
     }
 
-    // ================================
-    // COMMANDS
-    // ================================
+    // ==========================================
+    // COMMAND
+    // ==========================================
 
     private fun executeCommand(
-        command: String
+        originalCommand: String
     ) {
 
+        val command =
+            cleanCommand(originalCommand)
+
+        // -------------------------
         // সময়
+        // -------------------------
+
         if (
-            command.contains("সময় কত") ||
-            command.contains("সময় কত") ||
+            command.contains("সময়") ||
+            command.contains("সময়") ||
             command.contains("কয়টা বাজে") ||
             command.contains("কয়টা বাজে")
         ) {
@@ -213,7 +254,10 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // -------------------------
         // তারিখ
+        // -------------------------
+
         if (
             command.contains("আজকের তারিখ") ||
             command.contains("আজ কত তারিখ") ||
@@ -233,9 +277,13 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // টর্চ ON
+        // -------------------------
+        // টর্চ চালু
+        // -------------------------
+
         if (
             command.contains("টর্চ চালু") ||
+            command.contains("টর্চ অন") ||
             command.contains("ফ্ল্যাশলাইট চালু") ||
             command.contains("ফ্ল্যাশ অন")
         ) {
@@ -244,9 +292,13 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // টর্চ OFF
+        // -------------------------
+        // টর্চ বন্ধ
+        // -------------------------
+
         if (
             command.contains("টর্চ বন্ধ") ||
+            command.contains("টর্চ অফ") ||
             command.contains("ফ্ল্যাশলাইট বন্ধ") ||
             command.contains("ফ্ল্যাশ অফ")
         ) {
@@ -255,11 +307,18 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // -------------------------
         // সেটিংস
+        // -------------------------
+
         if (
             command == "সেটিংস" ||
             command.contains("সেটিংস খোলো") ||
-            command.contains("সেটিংস খুলে দাও")
+            command.contains("সেটিংস খুলে দাও") ||
+            command.contains("সেটিংস চালু কর") ||
+            command.contains("সেটিংস ওপেন কর") ||
+            command.contains("সেটিংস ওপেন করে দাও") ||
+            command.contains("সেটিংস দেখাও")
         ) {
 
             openSettings(
@@ -270,10 +329,13 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // -------------------------
         // WiFi
+        // -------------------------
+
         if (
-            command.contains("ওয়াইফাই সেটিংস") ||
-            command.contains("ওয়াইফাই সেটিংস")
+            command.contains("ওয়াইফাই") ||
+            command.contains("ওয়াইফাই")
         ) {
 
             openSettings(
@@ -284,9 +346,12 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // -------------------------
         // Bluetooth
+        // -------------------------
+
         if (
-            command.contains("ব্লুটুথ সেটিংস")
+            command.contains("ব্লুটুথ")
         ) {
 
             openSettings(
@@ -297,21 +362,26 @@ class RajjoVoiceService : Service() {
             return
         }
 
+        // -------------------------
         // Camera
+        // -------------------------
+
         if (
-            command == "ক্যামেরা" ||
-            command.contains("ক্যামেরা খোলো") ||
-            command.contains("ক্যামেরা খুলে দাও")
+            command.contains("ক্যামেরা")
         ) {
 
             openCamera()
             return
         }
 
-        // Phone
+        // -------------------------
+        // Phone / Dialer
+        // -------------------------
+
         if (
             command.contains("ফোন খোলো") ||
             command.contains("ফোন খুলে দাও") ||
+            command.contains("ফোন চালু কর") ||
             command.contains("ডায়ালার") ||
             command.contains("ডায়ালার")
         ) {
@@ -320,13 +390,186 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // Google
+        // ======================================
+        // FACEBOOK
+        // ======================================
+
         if (
-            command.startsWith("গুগলে") ||
-            command.startsWith("google")
+            command.contains("ফেসবুক") ||
+            command.contains("facebook") ||
+            command == "এফবি" ||
+            command.contains("এফবি")
         ) {
 
-            val query =
+            openApp(
+                "com.facebook.katana",
+                "ফেসবুক"
+            )
+
+            return
+        }
+
+        // ======================================
+        // MESSENGER
+        // ======================================
+
+        if (
+            command.contains("মেসেঞ্জার") ||
+            command.contains("messenger")
+        ) {
+
+            openApp(
+                "com.facebook.orca",
+                "মেসেঞ্জার"
+            )
+
+            return
+        }
+
+        // ======================================
+        // WHATSAPP
+        // ======================================
+
+        if (
+            command.contains("হোয়াটসঅ্যাপ") ||
+            command.contains("হোয়াটসঅ্যাপ") ||
+            command.contains("whatsapp")
+        ) {
+
+            openApp(
+                "com.whatsapp",
+                "হোয়াটসঅ্যাপ"
+            )
+
+            return
+        }
+
+        // ======================================
+        // INSTAGRAM
+        // ======================================
+
+        if (
+            command.contains("ইনস্টাগ্রাম") ||
+            command.contains("instagram")
+        ) {
+
+            openApp(
+                "com.instagram.android",
+                "ইনস্টাগ্রাম"
+            )
+
+            return
+        }
+
+        // ======================================
+        // CHROME
+        // ======================================
+
+        if (
+            command.contains("ক্রোম") ||
+            command.contains("chrome")
+        ) {
+
+            openApp(
+                "com.android.chrome",
+                "ক্রোম"
+            )
+
+            return
+        }
+
+        // ======================================
+        // GMAIL
+        // ======================================
+
+        if (
+            command.contains("জিমেইল") ||
+            command.contains("gmail")
+        ) {
+
+            openApp(
+                "com.google.android.gm",
+                "জিমেইল"
+            )
+
+            return
+        }
+
+        // ======================================
+        // PLAY STORE
+        // ======================================
+
+        if (
+            command.contains("প্লে স্টোর") ||
+            command.contains("প্লেস্টোর") ||
+            command.contains("play store")
+        ) {
+
+            openApp(
+                "com.android.vending",
+                "প্লে স্টোর"
+            )
+
+            return
+        }
+
+        // ======================================
+        // YOUTUBE
+        // ======================================
+
+        if (
+            command.contains("ইউটিউব") ||
+            command.contains("youtube")
+        ) {
+
+            val searchWords =
+                listOf(
+                    "সার্চ কর",
+                    "সার্চ করো",
+                    "সার্চ করে",
+                    "খুঁজে দাও",
+                    "খুঁজে দেখ",
+                    "search",
+                    "search কর"
+                )
+
+            var query = command
+
+            for (word in searchWords) {
+                query = query.replace(word, "")
+            }
+
+            query =
+                query
+                    .replace("ইউটিউব", "")
+                    .replace("youtube", "")
+                    .trim()
+
+            if (query.isEmpty()) {
+
+                openApp(
+                    "com.google.android.youtube",
+                    "ইউটিউব"
+                )
+
+            } else {
+
+                youtubeSearch(query)
+            }
+
+            return
+        }
+
+        // ======================================
+        // GOOGLE SEARCH
+        // ======================================
+
+        if (
+            command.contains("গুগলে") ||
+            command.contains("google")
+        ) {
+
+            var query =
                 command
                     .replace("গুগলে সার্চ কর", "")
                     .replace("গুগলে সার্চ", "")
@@ -349,116 +592,127 @@ class RajjoVoiceService : Service() {
             return
         }
 
-        // YouTube
+        // ======================================
+        // OTHER INSTALLED APPS
+        // ======================================
+
         if (
-            command.startsWith("ইউটিউবে") ||
-            command.startsWith("youtube")
+            openInstalledApp(command)
         ) {
-
-            val query =
-                command
-                    .replace("ইউটিউবে সার্চ কর", "")
-                    .replace("ইউটিউবে সার্চ", "")
-                    .replace("ইউটিউবে", "")
-                    .replace("youtube search", "")
-                    .replace("youtube", "")
-                    .trim()
-
-            if (query.isEmpty()) {
-
-                openApp(
-                    "com.google.android.youtube",
-                    "ইউটিউব"
-                )
-
-            } else {
-
-                youtubeSearch(query)
-            }
-
-            return
-        }
-
-        // Facebook / WhatsApp / Messenger ইত্যাদি
-        if (openInstalledApp(command)) {
             return
         }
 
         speak(
-            "স্যার, এই কাজটি এখনো আমার মধ্যে যোগ করা হয়নি।"
+            "স্যার, আমি কমান্ডটি বুঝতে পারিনি।"
         )
     }
 
-    // ================================
-    // APP OPEN
-    // ================================
+    // ==========================================
+    // CLEAN COMMAND
+    // ==========================================
+
+    private fun cleanCommand(
+        value: String
+    ): String {
+
+        var text = normalize(value)
+
+        val removeWords =
+            listOf(
+                "চালু করে দাও",
+                "চালু করে দিন",
+                "চালু করো",
+                "চালু কর",
+                "খুলে দাও",
+                "খুলে দিন",
+                "খুলে দিও",
+                "খোলো",
+                "খুল",
+                "ওপেন করে দাও",
+                "ওপেন করে দিন",
+                "ওপেন করো",
+                "ওপেন কর",
+                "open করে দাও",
+                "open করো",
+                "open কর",
+                "launch কর",
+                "launch",
+                "start"
+            )
+
+        for (word in removeWords) {
+            text = text.replace(word, " ")
+        }
+
+        return text
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
+    }
+
+    private fun normalize(
+        value: String
+    ): String {
+
+        return value
+            .lowercase(
+                Locale("bn", "BD")
+            )
+            .replace(
+                "।",
+                " "
+            )
+            .replace(
+                ",",
+                " "
+            )
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
+    }
+
+    // ==========================================
+    // INSTALLED APP SEARCH
+    // ==========================================
 
     private fun openInstalledApp(
         command: String
     ): Boolean {
 
         var name =
-            command
-                .lowercase(
-                    Locale("bn", "BD")
-                )
-                .trim()
+            cleanCommand(command)
 
-        val removeWords = listOf(
-            "ওপেন করে দাও",
-            "ওপেন কর",
-            "ওপেন করো",
-            "open করে দাও",
-            "open কর",
-            "open",
-            "খুলে দাও",
-            "খুলে দিও",
-            "খোলো",
-            "খুল",
-            "চালু করে দাও",
-            "চালু কর",
-            "চালু করো",
-            "launch",
-            "start"
-        )
-
-        for (word in removeWords) {
-            name = name.replace(word, " ")
-        }
-
-        name =
-            name
-                .replace(
-                    Regex("\\s+"),
-                    " "
-                )
-                .trim()
-
-        if (name.isEmpty()) {
-            return false
-        }
-
-        val aliases = mapOf(
-            "ফেসবুক" to "facebook",
-            "এফবি" to "facebook",
-            "fb" to "facebook",
-            "ইউটিউব" to "youtube",
-            "হোয়াটসঅ্যাপ" to "whatsapp",
-            "হোয়াটসঅ্যাপ" to "whatsapp",
-            "মেসেঞ্জার" to "messenger",
-            "ইনস্টাগ্রাম" to "instagram",
-            "টিকটক" to "tiktok",
-            "ক্রোম" to "chrome",
-            "জিমেইল" to "gmail",
-            "প্লে স্টোর" to "play store",
-            "প্লেস্টোর" to "play store"
-        )
+        val aliases =
+            mapOf(
+                "ফেসবুক" to "facebook",
+                "এফবি" to "facebook",
+                "fb" to "facebook",
+                "ইউটিউব" to "youtube",
+                "হোয়াটসঅ্যাপ" to "whatsapp",
+                "হোয়াটসঅ্যাপ" to "whatsapp",
+                "মেসেঞ্জার" to "messenger",
+                "ইনস্টাগ্রাম" to "instagram",
+                "টিকটক" to "tiktok",
+                "ক্রোম" to "chrome",
+                "জিমেইল" to "gmail",
+                "প্লে স্টোর" to "play store"
+            )
 
         val target =
             aliases[name] ?: name
 
+        if (target.isEmpty()) {
+            return false
+        }
+
         val launcherIntent =
-            Intent(Intent.ACTION_MAIN).apply {
+            Intent(
+                Intent.ACTION_MAIN
+            ).apply {
                 addCategory(
                     Intent.CATEGORY_LAUNCHER
                 )
@@ -467,7 +721,7 @@ class RajjoVoiceService : Service() {
         val apps =
             packageManager.queryIntentActivities(
                 launcherIntent,
-                PackageManager.MATCH_ALL
+                0
             )
 
         for (info in apps) {
@@ -482,10 +736,15 @@ class RajjoVoiceService : Service() {
                     )
                     .trim()
 
+            val packageName =
+                info.activityInfo.packageName
+                    .lowercase()
+
             if (
                 label == target ||
                 label.contains(target) ||
-                target.contains(label)
+                target.contains(label) ||
+                packageName.contains(target)
             ) {
 
                 val launchIntent =
@@ -496,35 +755,12 @@ class RajjoVoiceService : Service() {
 
                 if (launchIntent != null) {
 
-                    val appName =
+                    openWithIntent(
+                        launchIntent,
                         info.loadLabel(
                             packageManager
                         ).toString()
-
-                    speak(
-                        "জি স্যার, $appName খুলছি।"
                     )
-
-                    handler.postDelayed({
-
-                        try {
-
-                            launchIntent.addFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                            )
-
-                            startActivity(
-                                launchIntent
-                            )
-
-                        } catch (_: Exception) {
-
-                            speak(
-                                "স্যার, অ্যাপটি খোলা যাচ্ছে না।"
-                            )
-                        }
-
-                    }, 800)
 
                     return true
                 }
@@ -534,9 +770,9 @@ class RajjoVoiceService : Service() {
         return false
     }
 
-    // ================================
+    // ==========================================
     // OPEN APP
-    // ================================
+    // ==========================================
 
     private fun openApp(
         packageName: String,
@@ -557,6 +793,17 @@ class RajjoVoiceService : Service() {
 
             return
         }
+
+        openWithIntent(
+            intent,
+            appName
+        )
+    }
+
+    private fun openWithIntent(
+        intent: Intent,
+        appName: String
+    ) {
 
         speak(
             "জি স্যার, $appName খুলছি।"
@@ -579,12 +826,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
+    // ==========================================
     // SETTINGS
-    // ================================
+    // ==========================================
 
     private fun openSettings(
         action: String,
@@ -614,12 +861,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
+    // ==========================================
     // CAMERA
-    // ================================
+    // ==========================================
 
     private fun openCamera() {
 
@@ -631,7 +878,7 @@ class RajjoVoiceService : Service() {
 
             try {
 
-                startActivity(
+                val intent =
                     Intent(
                         android.provider.MediaStore.ACTION_IMAGE_CAPTURE
                     ).apply {
@@ -639,7 +886,8 @@ class RajjoVoiceService : Service() {
                             Intent.FLAG_ACTIVITY_NEW_TASK
                         )
                     }
-                )
+
+                startActivity(intent)
 
             } catch (_: Exception) {
 
@@ -648,12 +896,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
+    // ==========================================
     // DIALER
-    // ================================
+    // ==========================================
 
     private fun openDialer() {
 
@@ -682,12 +930,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
+    // ==========================================
     // GOOGLE
-    // ================================
+    // ==========================================
 
     private fun googleSearch(
         query: String
@@ -723,12 +971,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
-    // YOUTUBE
-    // ================================
+    // ==========================================
+    // YOUTUBE SEARCH
+    // ==========================================
 
     private fun youtubeSearch(
         query: String
@@ -764,12 +1012,12 @@ class RajjoVoiceService : Service() {
                 )
             }
 
-        }, 800)
+        }, 500)
     }
 
-    // ================================
+    // ==========================================
     // FLASHLIGHT
-    // ================================
+    // ==========================================
 
     private fun flashlight(
         turnOn: Boolean
@@ -822,9 +1070,9 @@ class RajjoVoiceService : Service() {
         }
     }
 
-    // ================================
-    // LISTENING
-    // ================================
+    // ==========================================
+    // LISTEN
+    // ==========================================
 
     private fun listen() {
 
@@ -842,7 +1090,7 @@ class RajjoVoiceService : Service() {
 
         } catch (_: Exception) {
 
-            listenLater(1000)
+            listenLater(700)
         }
     }
 
@@ -859,9 +1107,9 @@ class RajjoVoiceService : Service() {
         }, delay)
     }
 
-    // ================================
+    // ==========================================
     // SPEAK
-    // ================================
+    // ==========================================
 
     private fun speak(
         text: String
@@ -893,17 +1141,17 @@ class RajjoVoiceService : Service() {
             speaking = false
 
             if (waitingForCommand) {
-                listenLater(300)
+                listenLater(150)
             } else {
-                listenLater(500)
+                listenLater(400)
             }
 
-        }, 1800)
+        }, 1300)
     }
 
-    // ================================
+    // ==========================================
     // NOTIFICATION
-    // ================================
+    // ==========================================
 
     private fun createNotificationChannel() {
 
@@ -967,9 +1215,9 @@ class RajjoVoiceService : Service() {
         }
     }
 
-    // ================================
+    // ==========================================
     // DESTROY
-    // ================================
+    // ==========================================
 
     override fun onDestroy() {
 
